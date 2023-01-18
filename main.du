@@ -1,0 +1,52 @@
+#!/usr/bin/env dictu
+
+import System;
+
+from "wanbli/wanbli.du" import Wanbli, SessionHandler,
+    JsonResponse, ErrorResponse, DB;
+
+@Controller("/api/v1/releases")
+class Releases {
+    private dataStore;
+
+    init(dataStore) {
+        this.dataStore = dataStore;
+    }
+ 
+    @Post
+    @Json
+    @Path("/{id}")
+    newRelease(request) {
+        return;
+    }
+
+    @Get
+    @Json
+    @Path("/{id}")
+    retrieveRelease(request) {
+        if (request.query.exists("id")) {
+            const key = request.query.get("id");
+            return {
+                key: this.dataStore.get(key)
+            };
+        }
+
+        return [this.dataStore];
+    }
+}
+
+{ // main
+    var dataStore = {
+        "v0.1.0": "https://github.com/briandowns/spinner/releases/tag/v1.20.0",
+        "v0.20.0": "https://github.com/briandowns/spinner/releases/tag/v1.20.0",
+        "v1.1.0": "https://github.com/briandowns/spinner/releases/tag/v1.20.0",
+        "v2.5.0": "https://github.com/briandowns/spinner/releases/tag/v1.20.0"
+    };
+
+    const wanbli = Wanbli("0.0.0.0", 8080, true);
+    wanbli.addController(Releases(dataStore));
+
+    wanbli.start();
+
+    System.exit(0);
+}
