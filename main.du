@@ -5,6 +5,7 @@ import System;
 from "wanbli/wanbli.du" import Wanbli, SessionHandler,
     JsonResponse, ErrorResponse, DB;
 
+
 @Controller("/api/v1/releases")
 class Releases {
     private dataStore;
@@ -13,9 +14,8 @@ class Releases {
         this.dataStore = dataStore;
     }
  
-    @JSON
-    @Path("/")
-    post(request) {
+    @Post
+    new(request) {
         if (request.query.exists("id")) {
             const key = request.query.get("id");
             return {
@@ -26,9 +26,8 @@ class Releases {
         return [this.dataStore];
     }
 
-    @JSON
-    @Path("/{id}")
-    get(request) {
+    @Get
+    retrieve(request) {
         if (request.query.exists("id")) {
             const key = request.query.get("id");
             return {
@@ -37,6 +36,12 @@ class Releases {
         }
 
         return [this.dataStore];
+    }
+
+    @Get
+    @Path("/lasty")
+    lastT(request) {
+        return this.dataStore[this.dataStore.len()-1];
     }
 }
 

@@ -126,7 +126,8 @@ abstract class BaseResponse {
     }
 
     send(client) {
-        var responseHeaders = "HTTP/1.1 {}\r\nDate: {}\r\n".format(this.status, Datetime.strftime("%a, %d %b %Y %H:%M:%S"));
+        var responseHeaders = "HTTP/1.1 {}\r\nDate: {}\r\n"
+            .format(this.status, Datetime.strftime("%a, %d %b %Y %H:%M:%S"));
         
         this.headers.keys().forEach(def (key) => {
             responseHeaders += "{}: {}\r\n".format(key, this.headers[key]);
@@ -201,15 +202,17 @@ class Server {
     listen() {
         const result = this.socket.listen();
         if (not result.success()) {
-            print(result.unwrapError());
-            System.exit(1);
+            // print(result.unwrapError());
+            // System.exit(1);
+            return result.unwrapError();
         }
         
         while {
             const connection = this.socket.accept();
             if (not connection.success()) {
-                print(connection.unwrapError());
-                System.exit(1);
+                // print(connection.unwrapError());
+                // System.exit(1);
+                return result.unwrapError();
             }
 
             const [client, address] = connection.unwrap();
@@ -229,8 +232,9 @@ class Server {
         var buffer = client.recv(size);
 
         if (not buffer.success()) {
-            print(buffer.unwrapError());
-            System.exit(1);
+            // print(buffer.unwrapError());
+            // System.exit(1);
+            return result.unwrapError();
         }
 
         buffer = buffer.unwrap();
@@ -243,8 +247,9 @@ class Server {
             const data = client.recv(size);
 
             if (not data.success()) {
-                print(data.unwrapError());
-                System.exit(1);
+                // print(data.unwrapError());
+                // System.exit(1);
+                return result.unwrapError();
             }
 
             buffer += data.unwrap();
@@ -315,7 +320,8 @@ class Wanbli {
             HTTP.METHOD_PUT: {},
             HTTP.METHOD_DELETE: {},
             HTTP.METHOD_HEAD: {},
-            HTTP.METHOD_PATCH: {}
+            HTTP.METHOD_PATCH: {},
+            HTTP.METHOD_CONNECT: {}
         };
 
         this.middleware = [];
@@ -401,27 +407,40 @@ class Wanbli {
             return Error("'Controller' class annotation required");
         }
 
-        print("Class: {}".format(classRef.classAnnotations));
-        print("Method: {}".format(classRef.methodAnnotations));
-        // if (classRef.methodAnnotations == nil) {
-        //     return Error("method annotation(s) required for HTTP verb");
-        // }
-
-        // classRef.methodAnnotations.forEach(def(k, v) => {
-        //     if (not v.exists("Path")) {
-        //         annotationParseError = Error("no Path annotation found on '{}' method".format(k));
-        //     }
-        // });
-
-        const path = classRef.classAnnotations.get("Controller");
+        const resourcePath = classRef.classAnnotations.get("Controller");
+        print("All methods: {}".format(classRef.methods()));
+        print("All annotations: {}".format(classRef.methodAnnotations));
         classRef.methods().forEach(def(m) => {
-            switch (m) {
-                case "get": {print(m);this.defineRoute(HTTP.METHOD_GET, path, klass.get);}
-                case "post": this.defineRoute(HTTP.METHOD_POST, path, klass.post);
-                case "delete": this.defineRoute(HTTP.METHOD_DELETE, path, klass.delete);
-                case "put": this.defineRoute(HTTP.METHOD_PUT, path, klass.put);
-                case "head": this.defineRoute(HTTP.METHOD_HEAD, path, klass.head);
-                case "option": this.defineRoute(HTTP.METHOD_HEAD, path, klass.option);
+            if (m == "init") return;
+            print("Method: {}".format(m));
+            if (classRef.methodAnnotations.exists(m)) {
+                print("Annotations: {}".format(classRef.methodAnnotations.get(m)));
+                const annotations = classRef.methodAnnotations[m];
+
+                var path = resourcePath;
+                var verb = "";
+                if (annotations.exists("Path")) {
+                    const uri = annotations.get("Path");
+                    if (path != "") {
+                        path += uri;
+                    }
+                }
+
+                if (annotations.exists("Get")) { 
+                    verb = HTTP.METHOD_GET;
+                } else if (annotations.exists("Post")) { 
+                    verb = HTTP.METHOD_POST;
+                } else if (annotations.exists("Delete")) { 
+                    verb = HTTP.METHOD_DELETE;
+                } else if (annotations.exists("Patch")) { 
+                    verb = HTTP.METHOD_PATCH;
+                } else if (annotations.exists("Connect")) { 
+                    verb = HTTP.METHOD_CONNECT;
+                } else if (annotations.exists("Head")) { 
+                    verb = HTTP.METHOD_HEAD;
+                }                                                   
+                print("Verb: {}, Path: {}, Method: {}".format(verb, path, klass.getAttribute(m)));
+                this.defineRoute(verb, path, klass.getAttribute(m));
             }
         });
 
