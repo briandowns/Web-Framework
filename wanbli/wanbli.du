@@ -17,11 +17,10 @@ class DB {
         var result = this.connection.execute(query, values);
 
         if (not result.success()) {
-            print(result.unwrapError());
-            System.exit(1);
+            return result;
         }
 
-        return result.unwrap();
+        return result;
     }
 
     close() {
@@ -128,7 +127,7 @@ abstract class BaseResponse {
     send(client) {
         var responseHeaders = "HTTP/1.1 {}\r\nDate: {}\r\n"
             .format(this.status, Datetime.strftime("%a, %d %b %Y %H:%M:%S"));
-        
+        print(responseHeaders);
         this.headers.keys().forEach(def (key) => {
             responseHeaders += "{}: {}\r\n".format(key, this.headers[key]);
         });
@@ -142,7 +141,7 @@ class Response < BaseResponse {
         super.init();
 
         this.content = content;
-        this.status = this.statusCodes[status];
+        this.status = status;
 
         this.headers["Content-Length"] = content.len();
     }
@@ -153,7 +152,7 @@ class JsonResponse < BaseResponse {
         super.init();
 
         this.content = JSON.stringify(content).unwrap();
-        this.status = this.statusCodes[status];
+        this.status = status;
 
         this.headers["Content-Length"] = this.content.len();
         this.headers["Content-Type"] = "application/json";
@@ -202,16 +201,12 @@ class Server {
     listen() {
         const result = this.socket.listen();
         if (not result.success()) {
-            // print(result.unwrapError());
-            // System.exit(1);
             return result.unwrapError();
         }
         
         while {
             const connection = this.socket.accept();
             if (not connection.success()) {
-                // print(connection.unwrapError());
-                // System.exit(1);
                 return result.unwrapError();
             }
 
@@ -232,8 +227,6 @@ class Server {
         var buffer = client.recv(size);
 
         if (not buffer.success()) {
-            // print(buffer.unwrapError());
-            // System.exit(1);
             return result.unwrapError();
         }
 
@@ -247,8 +240,6 @@ class Server {
             const data = client.recv(size);
 
             if (not data.success()) {
-                // print(data.unwrapError());
-                // System.exit(1);
                 return result.unwrapError();
             }
 
@@ -310,6 +301,37 @@ class SessionHandler < BaseSessionHandler {
     }
 }
 
+abstract class Authentication {
+    abstract authenticate(request)
+}
+
+class TokenAuth < Authentication {
+    private token;
+    private authHeaderField;
+
+    init(authHeaderField, token) {
+        this.authHeaderField = authHeaderField;
+        this.token = token;
+    }
+
+    authenticate(request) {
+        if (not request.headers.exists(this.authHeaderField)) {
+            return Error("invalid authorization header");
+        }
+
+        const token = request.headers.get(this.authHeaderField);
+        if (token == "") {
+            return Error("invalid authorization header");
+        }
+
+        if (token != t.Token) {
+            return Error("invalid credentials");
+        }
+
+	    return Success(0);
+    }
+}
+
 class Wanbli {
     init(host="127.0.0.1", port=8080, private debug=false) {
         this.server = Server(this.response, host, port);
@@ -343,13 +365,15 @@ class Wanbli {
             ));
         }
 
-        var response = this.handleMiddleware(request);
-        if (response != nil) {
-            response.send(client);
-            return;
-        }
+        // var response = this.handleMiddleware(request);
+        // if (response != nil) {
+        //     response.send(client);
+        //     return;
+        // }
 
-        response = this.dispatch(request);
+        this.handleMiddleware(request);
+
+        var response = this.dispatch(request);
 
         if (this.sessionHandler != nil) {
             this.sessionHandler.save(request.session, request.sessionCopy, response);
@@ -380,12 +404,18 @@ class Wanbli {
         return ErrorResponse(HTTP.STATUS_MESSAGE_NOT_FOUND, HTTP.STATUS_CODE_NOT_FOUND);
     }
 
+    // private handleMiddleware(request) {
+    //     for (var i = 0; i < this.middleware.len(); i += 1) {
+    //         const response = this.middleware[i](request);
+    //         if (response != nil) {
+    //             return response;
+    //         }
+    //     }
+    // }
+
     private handleMiddleware(request) {
         for (var i = 0; i < this.middleware.len(); i += 1) {
-            const response = this.middleware[i](request);
-            if (response != nil) {
-                return response;
-            }
+            return this.middleware[i](request);
         }
     }
 
@@ -393,7 +423,7 @@ class Wanbli {
         this.sessionHandler = handler;
     }
 
-    define(callback) {
+    addMiddleware(callback) {
         this.middleware.push(callback);
     }
 
@@ -408,13 +438,11 @@ class Wanbli {
         }
 
         const resourcePath = classRef.classAnnotations.get("Controller");
-        print("All methods: {}".format(classRef.methods()));
-        print("All annotations: {}".format(classRef.methodAnnotations));
+
         classRef.methods().forEach(def(m) => {
             if (m == "init") return;
-            print("Method: {}".format(m));
+
             if (classRef.methodAnnotations.exists(m)) {
-                print("Annotations: {}".format(classRef.methodAnnotations.get(m)));
                 const annotations = classRef.methodAnnotations[m];
 
                 var path = resourcePath;
@@ -439,7 +467,7 @@ class Wanbli {
                 } else if (annotations.exists("Head")) { 
                     verb = HTTP.METHOD_HEAD;
                 }                                                   
-                print("Verb: {}, Path: {}, Method: {}".format(verb, path, klass.getAttribute(m)));
+
                 this.defineRoute(verb, path, klass.getAttribute(m));
             }
         });

@@ -3,7 +3,7 @@
 import System;
 
 from "wanbli/wanbli.du" import Wanbli, SessionHandler,
-    JsonResponse, ErrorResponse, DB;
+    JsonResponse, ErrorResponse, TokenAuth;
 
 
 @Controller("/api/v1/releases")
@@ -39,18 +39,24 @@ class Releases {
     }
 
     @Get
-    @Path("/lasty")
-    lastT(request) {
-        return this.dataStore[this.dataStore.len()-1];
+    @Path("/last")
+    @Auth("token")
+    @TokenAuth
+    last(request) {
+        const keys = this.dataStore.keys();
+        const idx = this.dataStore.len()-1;
+        const lastKey = keys[idx];
+
+        return {lastKey: this.dataStore.get(lastKey)};
     }
 }
 
 { // main
     var dataStore = {
-        "v0.1.0": "https://github.com/briandowns/spinner/releases/tag/v1.20.0",
-        "v0.20.0": "https://github.com/briandowns/spinner/releases/tag/v1.20.0",
-        "v1.1.0": "https://github.com/briandowns/spinner/releases/tag/v1.20.0",
-        "v2.5.0": "https://github.com/briandowns/spinner/releases/tag/v1.20.0"
+        "v0.1.0": "https://github.com/briandowns/spinner/releases/tag/v0.1.0",
+        "v0.20.0": "https://github.com/briandowns/spinner/releases/tag/v0.20.0",
+        "v1.1.0": "https://github.com/briandowns/spinner/releases/tag/v1.1.0",
+        "v2.5.0": "https://github.com/briandowns/spinner/releases/tag/v2.5.0"
     };
 
     const wanbli = Wanbli("0.0.0.0", 8080, true);
@@ -59,6 +65,9 @@ class Releases {
         print(ret.unwrapError());
         System.exit(1);
     }
+
+    const tokenAuth = TokenAuth("X-Wanbli-Auth", "asdf");
+    wanbli.addMiddleware(tokenAuth.authenticate);
 
     wanbli.start();
 
