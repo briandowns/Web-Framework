@@ -7,7 +7,25 @@ import Socket;
 import Sqlite;
 import System;
 
+from "logger.du" import Log;
 
+
+const statusCodes = {
+    // 2xx
+    HTTP.STATUS_CODE_OK: HTTP.STATUS_MESSAGE_OK,
+    HTTP.STATUS_CODE_CREATED: HTTP.STATUS_MESSAGE_CREATED,
+    // 3xx
+    301: "301 Moved Permanently",
+    // 4xx
+    400: "400 Bad Request",
+    401: "401 Unauthorized",
+    403: "403 Forbidden",
+    404: "404 Not Found",
+    // 5xx
+    500: "500 Internal Server Error"
+};
+
+// DB
 class DB {
     init(path) {
         this.connection = Sqlite.connect(path).unwrap();
@@ -28,6 +46,7 @@ class DB {
     }
 }
 
+// Request
 class Request {
     init(data) {
         const rawData = data.split("\r\n\r\n");
@@ -40,6 +59,7 @@ class Request {
         
         this.headers = {};
         this.body = {};
+        this.start = System.clock();
 
         this.parseUrl(routeData[1]);
         this.parseHeaders(headers);
@@ -88,22 +108,8 @@ class Request {
     }
 }
 
+// BaseResponse
 abstract class BaseResponse {
-    var statusCodes = {
-        // 2xx
-        HTTP.STATUS_CODE_OK: HTTP.STATUS_MESSAGE_OK,
-        HTTP.STATUS_CODE_CREATED: HTTP.STATUS_MESSAGE_CREATED,
-        // 3xx
-        301: "301 Moved Permanently",
-        // 4xx
-        400: "400 Bad Request",
-        401: "401 Unauthorized",
-        403: "403 Forbidden",
-        404: "404 Not Found",
-        // 5xx
-        500: "500 Internal Server Error"
-    };
-
     init() {
         this.headers = {
             "Server": "Dictu-Server",
@@ -127,7 +133,7 @@ abstract class BaseResponse {
     send(client) {
         var responseHeaders = "HTTP/1.1 {}\r\nDate: {}\r\n"
             .format(this.status, Datetime.strftime("%a, %d %b %Y %H:%M:%S"));
-        print(responseHeaders);
+        
         this.headers.keys().forEach(def (key) => {
             responseHeaders += "{}: {}\r\n".format(key, this.headers[key]);
         });
@@ -136,6 +142,7 @@ abstract class BaseResponse {
     }
 }
 
+// Response
 class Response < BaseResponse {
     init(content, status=HTTP.STATUS_CODE_OK) {
         super.init();
@@ -147,6 +154,7 @@ class Response < BaseResponse {
     }
 }
 
+// JsonResponse
 class JsonResponse < BaseResponse {
     init(content, status=200) {
         super.init();
@@ -159,21 +167,24 @@ class JsonResponse < BaseResponse {
     }
 }
 
+// ErrorResponse
 class ErrorResponse < BaseResponse {
     init(content="", status=HTTP.STATUS_CODE_INTERNAL_SERVER_ERROR) {
         super.init();
 
         this.content = content;
-        this.status = this.statusCodes[status];
+        this.status = statusCodes[status];
         this.headers["Content-Length"] = content.len();
     }
 }
 
+// BaseSessionHandler
 abstract class BaseSessionHandler {
     abstract save(request)
     abstract load(request)
 }
 
+// Server
 class Server {
     const HTTP_DELIMITER = "\r\n\r\n";
 
@@ -254,6 +265,7 @@ class Server {
     }
 }
 
+// SessionHandler
 class SessionHandler < BaseSessionHandler {
     init(app) {
         this.key = app.key;
@@ -301,11 +313,14 @@ class SessionHandler < BaseSessionHandler {
     }
 }
 
-abstract class Authentication {
-    abstract authenticate(request)
+// Middleware defines the middleware interface that
+// inhereting classes need to implement.
+abstract class Middleware {
+    abstract handle(request, response)
 }
 
-class TokenAuth < Authentication {
+// TokenAuth is a middleware for token based authentication.
+class TokenAuth < Middleware {
     private token;
     private authHeaderField;
 
@@ -314,26 +329,37 @@ class TokenAuth < Authentication {
         this.token = token;
     }
 
-    authenticate(request) {
+    handle(request) {
+        return this.authenticate(request);
+    }
+
+    private authenticate(request) {
         if (not request.headers.exists(this.authHeaderField)) {
-            return Error("invalid authorization header");
+            return ErrorResponse("invalid authorization header", HTTP.STATUS_BAD_REQUEST);
         }
 
         const token = request.headers.get(this.authHeaderField);
-        if (token == "") {
-            return Error("invalid authorization header");
+        if (token == "" or token != t.Token) {
+            return ErrorResponse("invalid authorization header", HTTP.STATUS_CODE_UNAUTHORIZED);
         }
 
-        if (token != t.Token) {
-            return Error("invalid credentials");
-        }
-
-	    return Success(0);
+	    return nil;
     }
 }
 
+// Cache is a middleware for caching requests 
+// and responses.
+class Cache < Middleware {
+    init() {}
+
+    handle(request) {}
+}
+
+// Wanbli 
 class Wanbli {
-    init(host="127.0.0.1", port=8080, private debug=false) {
+    private logger;
+
+    init(host="127.0.0.1", port=8080) {
         this.server = Server(this.response, host, port);
 
         this.routes = {
@@ -348,38 +374,46 @@ class Wanbli {
 
         this.middleware = [];
         this.sessionHandler = nil;
+
+        this.logger = Log();
     }
 
+    // start starts the server.
     start() {
         this.server.start();
     }
 
+    logCall(request, response) {
+        this.logger.info("request/response", {"remote-address": request.headers["Host"],
+            "method": request.verb,
+            "request-uri": request.route,
+            "status": response.status,
+            "user-agent": request.headers["User-Agent"],
+            "duration": (System.clock() - request.start) / 1000000});
+    }
+
+    private send(client, request, response) {
+        this.logCall(request, response);
+        response.send(client);
+    }
+
     response(client, address, data) {
         const request = Request(data);
-        if (this.debug) {
-            print("{} [{}] {} {}".format(
-                address,
-                Datetime.strftime("%a, %d %b %Y %H:%M:%S"),
-                request.verb,
-                request.route
-            ));
+        var response = Response(data, 0);
+
+        response = this.handleMiddleware(request, response);
+        if (response != nil) {
+            this.send(client, request, response);
+            return;
         }
 
-        // var response = this.handleMiddleware(request);
-        // if (response != nil) {
-        //     response.send(client);
-        //     return;
-        // }
-
-        this.handleMiddleware(request);
-
-        var response = this.dispatch(request);
+        response = this.dispatch(request);
 
         if (this.sessionHandler != nil) {
             this.sessionHandler.save(request.session, request.sessionCopy, response);
         }
 
-        response.send(client);
+        this.send(client, request, response);
     }
 
     dispatch(request) {
@@ -404,18 +438,12 @@ class Wanbli {
         return ErrorResponse(HTTP.STATUS_MESSAGE_NOT_FOUND, HTTP.STATUS_CODE_NOT_FOUND);
     }
 
-    // private handleMiddleware(request) {
-    //     for (var i = 0; i < this.middleware.len(); i += 1) {
-    //         const response = this.middleware[i](request);
-    //         if (response != nil) {
-    //             return response;
-    //         }
-    //     }
-    // }
-
-    private handleMiddleware(request) {
+    private handleMiddleware(request, res) {
         for (var i = 0; i < this.middleware.len(); i += 1) {
-            return this.middleware[i](request);
+            const response = this.middleware[i].handle(request, res);
+            if (response != nil) {
+                return response;
+            }
         }
     }
 
@@ -423,8 +451,8 @@ class Wanbli {
         this.sessionHandler = handler;
     }
 
-    addMiddleware(callback) {
-        this.middleware.push(callback);
+    addMiddleware(...callback) {
+        callback.forEach(def(c) => this.middleware.push(c));
     }
 
     defineRoute(verb, route, callback) {

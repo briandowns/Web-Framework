@@ -3,8 +3,30 @@
 import System;
 
 from "wanbli/wanbli.du" import Wanbli, SessionHandler,
-    JsonResponse, ErrorResponse, TokenAuth;
+    Response, JsonResponse, ErrorResponse, TokenAuth;
+from "wanbli/logger.du" import Log;
 
+
+@Controller("/")
+class Frontend {
+    init() {}
+
+    @Get
+    index(request) {
+        print(request.route);
+        with("static/index.html", "r") {
+            return file.read();
+        }
+    }
+
+    @Get
+    @Path("static")
+    staticAssets(path) {
+        with("static/css/main.css", "r") {
+            return file.read();
+        }     
+    }
+}
 
 @Controller("/api/v1/releases")
 class Releases {
@@ -47,27 +69,33 @@ class Releases {
         const idx = this.dataStore.len()-1;
         const lastKey = keys[idx];
 
-        return {lastKey: this.dataStore.get(lastKey)};
+        return JsonResponse({lastKey: this.dataStore.get(lastKey)});
     }
 }
 
 { // main
+    const logger = Log();
+    logger.info("Starting application");
+
     var dataStore = {
         "v0.1.0": "https://github.com/briandowns/spinner/releases/tag/v0.1.0",
         "v0.20.0": "https://github.com/briandowns/spinner/releases/tag/v0.20.0",
         "v1.1.0": "https://github.com/briandowns/spinner/releases/tag/v1.1.0",
         "v2.5.0": "https://github.com/briandowns/spinner/releases/tag/v2.5.0"
     };
+    
+    const wanbli = Wanbli("0.0.0.0", 8080);
 
-    const wanbli = Wanbli("0.0.0.0", 8080, true);
-    const ret = wanbli.addController(Releases(dataStore));
-    if (not ret.success()) {
-        print(ret.unwrapError());
-        System.exit(1);
-    }
+    const controllers = [ Releases(dataStore), Frontend() ];
+    controllers.forEach(def(c) => {
+        const ret = wanbli.addController(c);
+        if (not ret.success()) {
+            logger.error(ret.unwrapError());
+            System.exit(1);
+        }
+    });
 
     const tokenAuth = TokenAuth("X-Wanbli-Auth", "asdf");
-    wanbli.addMiddleware(tokenAuth.authenticate);
 
     wanbli.start();
 
